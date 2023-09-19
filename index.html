@@ -1,0 +1,507 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AutoDL</title>
+    <link rel="stylesheet" href="https://unpkg.com/element-plus/dist/index.css" />
+    <script src="https://unpkg.com/vue@3"></script>
+    <script src="https://unpkg.com/element-plus"></script>
+    <script src="https://unpkg.com/@element-plus/icons-vue"></script>
+    <script src="https://cdn.bootcdn.net/ajax/libs/axios/1.3.6/axios.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.0.0/crypto-js.min.js"></script>
+</head>
+
+<body>
+    <div id="app">
+        <el-container>
+            <el-header height="60px" class="header-container">
+                <el-menu :default-active="mainData.defaultMenu" active-text-color="#ffd04b" background-color="#545c64"
+                    text-color="#fff" mode="horizontal" @select="handleMenuSelect">
+                    <el-menu-item index="1">账号管理</el-menu-item>
+                    <el-menu-item index="2">实例管理</el-menu-item>
+                </el-menu>
+            </el-header>
+            <el-main class="main-container" :style="mainData.sizeInfo.mainContainerStyle">
+                <div v-if="mainData.menuSelect==1">
+                    <el-card class="box-card">
+                        <template #header>
+                            <div class="card-header">
+                                <span>账号管理</span>
+                                <span>
+                                    <el-button text @click="onAddAccountDialog">添加账号</el-button>
+                                </span>
+
+                            </div>
+                        </template>
+                        <el-table :data="mainData.accountData" :height="mainData.sizeInfo.tableHeight" empty-text="无数据">
+                            <el-table-column type="index" label="INDEX" min-width="80"></el-table-column>
+                            <el-table-column prop="account" label="账号" min-width="100"></el-table-column>
+                            <el-table-column prop="username" label="用户名" min-width="100"></el-table-column>
+                            <el-table-column prop="logindate" label="登录日期" min-width="150"></el-table-column>
+                            <el-table-column prop="token" label="TOKEN" min-width="500"></el-table-column>
+                            <el-table-column fixed="right" label="操作" min-width="60">
+                                <template #default="scope">
+                                    <el-button link type="danger" size="small" @click="delAccount(scope)">删除</el-button>
+                                </template>
+                            </el-table-column>
+                        </el-table>
+                    </el-card>
+                </div>
+                <div v-if="mainData.menuSelect==2">
+                    <el-card class="box-card">
+                        <template #header>
+                            <div class="card-header">
+                                <span>实例管理</span>
+                                <span>
+                                    <el-select v-model="mainData.selectAccount" placeholder="选择账号"
+                                        @change="getAccountInstance">
+                                        <el-option v-for="item in mainData.accountData" :key="item.account"
+                                            :label="item.account" :value="item.token" />
+                                    </el-select>
+                                    <el-button style="margin-left: 15px;;" link type="primary"
+                                        @click="getAccountInstance" size="small">刷新</el-button>
+                                </span>
+
+                            </div>
+                        </template>
+                        <el-table :data="mainData.instanceData" :height="mainData.sizeInfo.tableHeight"
+                            empty-text="无数据">
+                            <el-table-column prop="uuid" label="UUID" min-width="200"></el-table-column>
+                            <el-table-column prop="created_at" label="创建日期" min-width="220"></el-table-column>
+                            <el-table-column prop="snapshot_gpu_alias_name" label="实例"
+                                min-width="120"></el-table-column>
+                            <el-table-column label="地区" min-width="120">
+                                <template #default="scope">
+                                    <span>{{scope.row.region_name}}/{{scope.row.machine_alias}}</span>
+                                </template>
+                            </el-table-column>
+                            <el-table-column prop="status" label="状态" min-width="110"></el-table-column>
+                            <el-table-column prop="start_mode" label="模式" min-width="90"></el-table-column>
+                            <el-table-column prop="gpu_idle_num" label="可用GPU" min-width="100"></el-table-column>
+                            <el-table-column label="价格" min-width="80">
+                                <template #default="scope">
+                                    <span>{{scope.row.payg_price/100}}</span>
+                                </template>
+                            </el-table-column>
+                            <el-table-column prop="ssh_command" label="SSH" min-width="350"></el-table-column>
+                            <el-table-column label="SSH隧道" min-width="550">
+                                <template #default="scope">
+                                    <span>ssh -CNg -L 6006:127.0.0.1:6006 root@{{scope.row.proxy_host}} -p {{scope.row.ssh_port}}</span>
+                                </template>
+                            </el-table-column>
+                            <el-table-column prop="root_password" label="SSH密码" min-width="200"></el-table-column>
+                            <el-table-column fixed="right" label="操作" min-width="180">
+                                <template #default="scope">
+                                    <el-row>
+                                        <el-col :span="8">
+                                            <el-button link type="primary" size="small" :loading="scope.row.loading"
+                                                @click="instancePowerOnWithGPU(scope)">开机</el-button>
+                                        </el-col>
+                                        <el-col :span="8">
+                                            <el-button link type="danger" size="small" :loading="scope.row.loading"
+                                                @click="instancePowerOff(scope)">关机</el-button>
+                                        </el-col>
+                                        <el-col :span="8">
+                                            <el-dropdown style="margin-top:4px;" :disabled="scope.row.loading">
+                                                <el-button link type="warning" style="outline: none;" size="small"
+                                                    :loading="scope.row.loading">
+                                                    更多
+                                                    <el-icon>
+                                                        <Expand />
+                                                    </el-icon>
+                                                </el-button>
+                                                <template #dropdown>
+                                                    <el-dropdown-menu>
+                                                        <el-dropdown-item :disabled="item.disabled"
+                                                            v-for="item in mainData.instanceOperations"
+                                                            @click="item.function(scope)">{{item.value}}</el-dropdown-item>
+                                                    </el-dropdown-menu>
+                                                </template>
+                                            </el-dropdown>
+                                        </el-col>
+                                    </el-row>
+                                </template>
+                            </el-table-column>
+                        </el-table>
+                    </el-card>
+                </div>
+            </el-main>
+            <el-footer height="50px" class="footer-container">AutoDL-API调用示例</el-footer>
+        </el-container>
+        <el-dialog v-model="mainData.addAccountDialog" title="添加账号" width="40%">
+            <el-input class="input" v-model="mainData.accountInfo.account" placeholder="账号"></el-input>
+            <el-input :type="mainData.isShowPassword ? 'text' : 'password'" placeholder="密码"
+                v-model="mainData.accountInfo.password" autocomplete="off">
+                <template #suffix>
+                    <el-button v-if="mainData.isShowPassword" text link type="primary" @click="showPass">隐藏</el-button>
+                    <el-button v-else text plain link type="primary" @click="showPass">显示</el-button>
+                </template>
+            </el-input>
+            <template #footer>
+                <el-button @click="mainData.addAccountDialog = false">取消</el-button>
+                <el-button type="primary" @click="logIn">
+                    添加
+                </el-button>
+            </template>
+        </el-dialog>
+    </div>
+
+    <script>
+        const { createApp, ref, reactive, onMounted } = Vue;
+        const { ElMessage, ElMessageBox } = ElementPlus;
+
+        const app = createApp({
+            setup() {
+                const encryptPassword = (password) => {
+                    return CryptoJS.SHA1(password).toString();
+                }
+
+                const windowHeight = window.innerHeight;
+
+                const requestPost = (endpoint, postdata, successMessage = null) => {
+                    return new Promise((resolve, reject) => {
+                        axios
+                            .post(mainData.baseApi + endpoint, postdata, { headers: { Authorization: mainData.selectAccount } })
+                            .then(response => {
+                                const respData = response.data;
+                                if (respData.code === "Success") {
+                                    if (successMessage !== null) {
+                                        ElMessage({
+                                            message: successMessage,
+                                            type: 'success'
+                                        });
+                                    }
+
+                                    resolve(respData);
+                                } else {
+                                    ElMessage({
+                                        message: respData,
+                                        type: 'error'
+                                    });
+                                    reject(respData);
+                                }
+                            })
+                            .catch(function (error) {
+                                ElMessage({
+                                    message: error,
+                                    type: 'error'
+                                });
+                                console.log(error);
+                                reject(error);
+                            });
+                    });
+                };
+
+                const powerOn = (scope, nonGpu = false) => {
+                    scope.row.loading = true
+                    const uuid = scope.row.uuid
+                    const postData = { instance_uuid: uuid };
+                    if (nonGpu) {
+                        postData['payload'] = "non_gpu";
+                    };
+                    requestPost('/instance/power_on', postData).then(res => {
+                        const endpoint = '/instance';
+                        const monitor = setInterval(() => {
+                            const postData = { date_from: "", date_to: "", page_index: 1, page_size: 10, status: [], charge_type: [] };
+                            let maxPage;
+                            do {
+                                requestPost(endpoint, postData).then(res => {
+                                    maxPage = res.data.max_page;
+                                    const dataList = res.data.list;
+                                    for (const machine of dataList) {
+                                        const machineUUID = machine.uuid
+                                        const machienStatus = machine.status
+                                        mainData.instanceData.forEach((value, index) => {
+                                            if (machineUUID === value.uuid && machienStatus === 'running') {
+                                                clearInterval(monitor);
+                                                mainData.instanceData[index] = machine
+                                                scope.row.loading = false
+                                                ElMessage({
+                                                    type: 'success',
+                                                    message: '开机成功！',
+                                                })
+                                            }
+                                        })
+                                    }
+                                    postData.page_index += 1;
+                                })
+                            } while (postData.page_index <= maxPage);
+                        }, 2000)
+                    })
+                }
+
+                const instancePowerOff = (scope) => {
+                    scope.row.loading = true
+                    requestPost('/instance/power_off', { instance_uuid: scope.row.uuid }).then(res => {
+                        const endpoint = '/instance';
+                        const monitor = setInterval(() => {
+                            const postData = { date_from: "", date_to: "", page_index: 1, page_size: 10, status: [], charge_type: [] };
+                            let maxPage;
+                            do {
+                                requestPost(endpoint, postData).then(res => {
+                                    maxPage = res.data.max_page;
+                                    const dataList = res.data.list;
+                                    for (const machine of dataList) {
+                                        const machineUUID = machine.uuid
+                                        const machienStatus = machine.status
+                                        mainData.instanceData.forEach((value, index) => {
+                                            if (machineUUID === value.uuid && machienStatus === 'shutdown') {
+                                                clearInterval(monitor);
+                                                mainData.instanceData[index] = machine
+                                                scope.row.loading = true
+                                                ElMessage({
+                                                    type: 'success',
+                                                    message: '关机成功！',
+                                                })
+                                            }
+                                        })
+                                    }
+                                    postData.page_index += 1;
+                                })
+                            } while (postData.page_index <= maxPage);
+
+
+                        }, 2000)
+                    })
+                }
+
+                const instancePowerOnNonGPU = (scope) => {
+                    powerOn(scope, true)
+                }
+
+                const mainData = reactive({
+                    baseApi: 'https://www.autodl.com/api/v1',
+                    isShowPassword: false,
+                    addAccountDialog: false,
+                    sshCommandDialog: false,
+                    apiConfigDialog: false,
+                    defaultMenu: "1",
+                    sshCommandUUID: '',
+                    sshCommand: '',
+                    sshCommands: {},
+                    sizeInfo: {
+                        mainContainerHeight: windowHeight - 60 - 50 - 46,
+                        tableHeight: windowHeight - 60 - 50 - 46 - 112,
+                        mainContainerStyle: "height:" + (windowHeight - 60 - 50 - 46).toString() + "px;"
+                    },
+                    selectAccount: '',
+                    accountInfo: {
+                        account: '',
+                        password: ''
+                    },
+                    menuSelect: 1,
+                    accountData: [],
+                    instanceData: [],
+                    instanceOperations: [
+                        { key: 1, value: '无卡开机', function: instancePowerOnNonGPU, disabled: false }
+                    ]
+                })
+
+
+                const instancePowerOnWithGPU = (scope) => {
+                    powerOn(scope, false)
+                }
+
+                const handleMenuSelect = (index) => {
+                    mainData.menuSelect = index
+                    window.localStorage.setItem("selectMenu", index)
+                }
+
+                const handleWindowSizeChange = () => {
+                    const windowHeight = window.innerHeight;
+                    mainData.sizeInfo.mainContainerHeight = windowHeight - 60 - 50 - 46,
+                        mainData.sizeInfo.tableHeight = windowHeight - 60 - 50 - 46 - 112,
+                        mainData.sizeInfo.mainContainerStyle = "height:" + (windowHeight - 60 - 50 - 46).toString() + "px;"
+                }
+
+                window.onresize = function () {
+                    handleWindowSizeChange()
+                }
+
+                const showPass = () => {
+                    if (mainData.isShowPassword) {
+                        mainData.isShowPassword = false
+                    } else {
+                        mainData.isShowPassword = true
+                    }
+                }
+
+                const delAccount = (scope) => {
+                    ElMessageBox.confirm(
+                        '此操作将删除账号: ' + scope.row.account,
+                        '删除',
+                        {
+                            confirmButtonText: '确认',
+                            cancelButtonText: '取消',
+                            type: 'warning',
+                        }
+                    )
+                        .then(() => {
+                            mainData.accountData.splice(scope.$index, 1)
+                            window.localStorage.setItem("accountData", JSON.stringify(mainData.accountData))
+                            if (scope.row.token === mainData.selectAccount) {
+                                mainData.selectAccount = ''
+                                window.localStorage.removeItem("selectAccount")
+                            }
+                            ElMessage({
+                                type: 'success',
+                                message: '删除成功！',
+                            })
+                        })
+                        .catch(() => {
+                            ElMessage({
+                                type: 'info',
+                                message: '取消删除！',
+                            })
+                        })
+                }
+
+                const logIn = () => {
+                    const targetKey = 'name';
+                    var reCount = 0
+                    mainData.accountData.forEach(obj => {
+                        if (obj.account === mainData.accountInfo.account) {
+                            reCount += 1
+                        }
+                    });
+                    if (reCount === 0) {
+                        const loginData = {
+                            phone: mainData.accountInfo.account, password: encryptPassword(mainData.accountInfo.password), v_code: "", phone_area: "+86",
+                            picture_id: null
+                        }
+                        requestPost('/new_login', loginData, '添加账号成功!').then(data => {
+                            const resdata = data.data;
+                            const ticket = resdata.ticket
+                            const username = resdata.user.username
+                            const passport_data = { ticket: ticket }
+                            requestPost('/passport', passport_data).then(res => {
+                                const loggedData = res.data;
+                                const newData = {
+                                    account: mainData.accountInfo.account,
+                                    username: username,
+                                    logindate: new Date(),
+                                    token: loggedData.token,
+                                }
+                                mainData.accountData.push(newData)
+                                window.localStorage.setItem("accountData", JSON.stringify(mainData.accountData))
+                                mainData.addAccountDialog = false
+                            })
+                        })
+                    } else {
+                        ElMessage({
+                            message: '存在重复账号!',
+                            type: 'warning'
+                        });
+                    }
+                }
+
+                const getAccountInstance = () => {
+                    const endpoint = '/instance';
+                    const postData = { date_from: "", date_to: "", page_index: 1, page_size: 10, status: [], charge_type: [] };
+                    mainData.instanceData.length = 0
+                    let maxPage;
+                    do {
+                        requestPost(endpoint, postData).then(res => {
+                            maxPage = res.data.max_page;
+                            const dataList = res.data.list;
+                            for (let d of dataList) {
+                                mainData.instanceData.push(d);
+                            }
+                            postData.page_index += 1;
+                        })
+                    } while (postData.page_index <= maxPage);
+                }
+
+                const onAddAccountDialog = () => {
+                    mainData.addAccountDialog = true
+                }
+
+                const initLocalData = () => {
+                    const accountSaved = window.localStorage.getItem("accountData")
+                    if (accountSaved !== null) {
+                        mainData.accountData = JSON.parse(accountSaved)
+                    }
+                    const selectMenu = window.localStorage.getItem("selectMenu")
+                    if (selectMenu !== null) {
+                        mainData.defaultMenu = selectMenu
+                        mainData.menuSelect = selectMenu
+                    }
+                    const selectAccount = window.localStorage.getItem("selectAccount")
+                    if (selectAccount !== null) {
+                        mainData.selectAccount = selectAccount
+                        getAccountInstance();
+                    }
+                }
+
+                onMounted(() => {
+                    initLocalData();
+                })
+
+                return {
+                    handleMenuSelect,
+                    onAddAccountDialog,
+                    delAccount,
+                    showPass,
+                    logIn,
+                    getAccountInstance,
+                    instancePowerOnWithGPU,
+                    instancePowerOff,
+                    mainData,
+                }
+            }
+        });
+
+        app.use(ElementPlus);
+
+        for (const [key, component] of Object.entries(ElementPlusIconsVue)) {
+            app.component(key, component)
+        }
+
+        app.mount("#app");
+    </script>
+    <style>
+        .header-container {
+            padding: 0;
+        }
+
+        .main-container {
+            padding: 0;
+            margin-top: 15px;
+            margin-bottom: 15px;
+        }
+
+        .footer-container {
+            padding: 0;
+            background-color: #545c64;
+            color: #c2c2c2;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .input {
+            padding-bottom: 15px;
+        }
+
+        .el-dropdown-link {
+            cursor: pointer;
+            color: var(--el-color-primary);
+            display: flex;
+            align-items: center;
+        }
+
+        .setupStyle .el-dropdown-link:focus {
+            outline: none;
+        }
+    </style>
+</body>
+
+</html>
